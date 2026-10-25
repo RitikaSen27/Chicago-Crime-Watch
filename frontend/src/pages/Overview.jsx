@@ -1,178 +1,306 @@
-import Gauge from "../components/Gauge";
-import Ring from "../components/Ring";
-import TickBar from "../components/TickBar";
+
 import timeAgo from "../utils/timeAgo";
 
-export default function Overview({ areaPercent, areaCount, areaRank, maxCount, loadingBreakdown, topTwoTypes, breakdownTotal, loadingArrests, arrests, loadingNews, articles, selectedArea, loadNews }) {
+function formatNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? number.toLocaleString("en-US")
+    : "—";
+}
+
+function Track({ percent, primary = false }) {
+  const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+
   return (
-          <div className="cw-grid">
-            <div className="cw-card">
-              <div className="cw-card-head">
-                <div className="cw-card-title">Hotspot severity</div>
-                <div className="cw-card-more">···</div>
-              </div>
-              <div className="cw-gauge-wrap">
-                <Gauge percent={areaPercent} />
-                <div className="cw-gauge-center">
-                  <div className="cw-gauge-total">{areaCount || "—"}</div>
-                  <div className="cw-gauge-total-label">Incidents, 30 days</div>
-                </div>
-              </div>
-              <div className="cw-gauge-stats">
-                <div className="cw-gauge-stat">
-                  <div className="cw-gauge-stat-value">
-                    {areaRank ? `#${areaRank}` : "—"}
-                  </div>
-                  <div className="cw-gauge-stat-label">City rank</div>
-                </div>
-                <div className="cw-gauge-stat">
-                  <div className="cw-gauge-stat-value">{maxCount}</div>
-                  <div className="cw-gauge-stat-label">City max</div>
-                </div>
-                <div className="cw-gauge-stat">
-                  <div className="cw-gauge-stat-value">
-                    {Math.round(areaPercent)}%
-                  </div>
-                  <div className="cw-gauge-stat-label">Of peak area</div>
-                </div>
-              </div>
-            </div>
+    <div className="ov-track ov-type-track">
+      <div
+        className={
+          "ov-track-fill" + (primary ? " ov-fill-primary" : "")
+        }
+        style={{ width: `${safePercent}%` }}
+      />
+    </div>
+  );
+}
 
-            <div className="cw-card">
-              <div className="cw-card-head">
-                <div className="cw-card-title">Leading crime types</div>
-                <div className="cw-card-more">···</div>
-              </div>
-              {loadingBreakdown && (
-                <div className="cw-state cw-state-dark" style={{ padding: "20px 0" }}>
-                  Loading breakdown…
-                </div>
-              )}
-              {!loadingBreakdown && topTwoTypes.length === 0 && (
-                <div className="cw-news-empty">No category data for this area yet.</div>
-              )}
-              {!loadingBreakdown &&
-                topTwoTypes.map((t) => {
-                  const pct = breakdownTotal
-                    ? (t.type_count / breakdownTotal) * 100
-                    : 0;
-                  return (
-                    <div className="cw-type-row" key={t.primary_type}>
-                      <div className="cw-type-top">
-                        <span className="cw-type-name">{t.primary_type}</span>
-                        <span className="cw-type-pct">{Math.round(pct)}%</span>
-                      </div>
-                      <div className="cw-type-nums">
-                        <span className="cw-type-count">{t.type_count}</span>
-                        <span className="cw-type-count-unit">cases, 30 days</span>
-                      </div>
-                      <TickBar percent={pct} />
-                    </div>
-                  );
-                })}
-            </div>
+export default function Overview({
+  areaPercent = 0,
+  areaCount = 0,
+  areaRank,
+  maxCount = 0,
+  loadingBreakdown,
+  topTwoTypes = [],
+  breakdownTotal = 0,
+  loadingArrests,
+  arrests,
+  loadingNews,
+  articles = [],
+  selectedArea,
+  days = 30,
+  momentum,
+  loadNews,
+}) {
+  const safePercent = Math.max(
+    0,
+    Math.min(100, Number(areaPercent) || 0)
+  );
 
-            <div className="cw-card">
-              <div className="cw-card-head">
-                <div className="cw-card-title">Arrest rate</div>
-                <div className="cw-card-more">···</div>
-              </div>
-              {loadingArrests && (
-                <div className="cw-state cw-state-dark" style={{ padding: "20px 0" }}>
-                  Loading…
-                </div>
-              )}
-              {!loadingArrests && arrests && (
-                <>
-                  <div className="cw-arrest-ring-wrap">
-                    <Ring
-                      percent={arrests.arrest_rate}
-                      color={arrests.arrest_rate >= 30 ? "#F5F3F0" : "#E2574C"}
-                    />
-                    <div className="cw-arrest-ring-center">
-                      <div className="cw-arrest-rate">{arrests.arrest_rate}%</div>
-                      <div className="cw-arrest-rate-label">arrest rate</div>
-                    </div>
-                  </div>
-                  <div className="cw-arrest-stats">
-                    <div className="cw-gauge-stat">
-                      <div className="cw-gauge-stat-value">{arrests.total_arrests}</div>
-                      <div className="cw-gauge-stat-label">Arrests</div>
-                    </div>
-                    <div className="cw-gauge-stat">
-                      <div className="cw-gauge-stat-value">{arrests.total_crimes}</div>
-                      <div className="cw-gauge-stat-label">Total cases</div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+  const arrestRate = Math.max(
+    0,
+    Math.min(100, Number(arrests?.arrest_rate) || 0)
+  );
 
-            <div className="cw-card">
-              <div className="cw-card-head">
-                <div className="cw-card-title">Latest coverage</div>
-                <div className="cw-card-more">···</div>
-              </div>
+  return (
+    <section className="overview-layout">
+      {/* AREA SUMMARY */}
+      <article className="ov-card ov-area">
+        <div className="ov-eyebrow">
+          <span className="ov-status-dot" />
+          Selected community area
+          <span className="ov-index">01 / 04</span>
+        </div>
 
-              {loadingNews && (
-                <div className="cw-state cw-state-dark" style={{ padding: "20px 0" }}>
-                  Fetching news…
-                </div>
-              )}
+        <div className="ov-area-heading">
+          <div>
+            <div className="ov-muted">Current selection</div>
+            <h2>{selectedArea || "Chicago"}</h2>
+          </div>
 
-              {!loadingNews && articles.length === 0 && (
-                <div className="cw-news-empty">
-                  No recent coverage found, even in general Chicago crime
-                  news. This usually means the NewsAPI daily quota (100
-                  requests/day) has been reached — check the Flask terminal.
-                </div>
-              )}
+          <div className="ov-rank">
+            <span className="ov-muted">City rank</span>
+            <strong>{areaRank ? `#${areaRank}` : "—"}</strong>
+          </div>
+        </div>
 
-              {!loadingNews && articles.length > 0 && (
+        <div className="ov-main-metric">
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div className="ov-muted">Reported incidents</div>
+              {momentum && (
                 <span
-                  className={
-                    "cw-news-scope-badge " +
-                    (articles[0].is_area_specific
-                      ? "cw-news-scope-specific"
-                      : "cw-news-scope-general")
-                  }
+                  className="cw-search-badge"
+                  style={{
+                    color: momentum.isUp ? "#E2574C" : "#22C55E",
+                    background: momentum.isUp ? "rgba(226,87,76,0.15)" : "rgba(34,197,94,0.15)",
+                    padding: "2px 6px",
+                    borderRadius: "2px",
+                    fontSize: "10px",
+                  }}
                 >
-                  {articles[0].is_area_specific
-                    ? `About ${selectedArea}`
-                    : "General Chicago coverage"}
+                  {momentum.delta}
                 </span>
               )}
+            </div>
+            <div className="ov-big-number">
+              {formatNumber(areaCount)}
+            </div>
+            <div className="ov-muted ov-period">
+              Most recent {days}-day window in the database
+            </div>
+          </div>
 
-              <div className="cw-news-list">
-                {!loadingNews &&
-                  articles.slice(0, 3).map((a, i) => (
-                    <div className="cw-news-item" key={a.url || i}>
-                      <p className="cw-news-title">{a.title}</p>
-                      <div className="cw-news-source">
-                        {a.source_name || a.source?.name || "Unknown source"} ·{" "}
-                        {timeAgo(a.published_at || a.publishedAt)}
-                      </div>
-                    </div>
-                  ))}
+          <div className="ov-peak">
+            <span className="ov-muted">Share of city peak</span>
+            <strong>{Math.round(safePercent)}%</strong>
+            <Track percent={safePercent} primary />
+            <span className="ov-muted">
+              Peak area: {formatNumber(maxCount)} incidents
+            </span>
+          </div>
+        </div>
+
+        <div className="ov-footnote">
+          <span>Area incident count</span>
+          <strong>{formatNumber(areaCount)}</strong>
+        </div>
+      </article>
+
+      {/* CRIME BREAKDOWN */}
+      <article className="ov-card ov-crimes">
+        <div className="ov-section-heading">
+          <div>
+            <div className="ov-eyebrow">02 / Crime composition</div>
+            <h3>What is driving the count?</h3>
+          </div>
+          <span className="ov-muted">Top categories</span>
+        </div>
+
+        {loadingBreakdown ? (
+          <div className="ov-empty">Loading crime categories…</div>
+        ) : topTwoTypes.length === 0 ? (
+          <div className="ov-empty">
+            No crime category data is available for this area yet.
+          </div>
+        ) : (
+          <div className="ov-type-list">
+            {topTwoTypes.map((item, index) => {
+              const count = Number(item.type_count) || 0;
+              const percent = breakdownTotal
+                ? (count / breakdownTotal) * 100
+                : 0;
+
+              return (
+                <div className="ov-type" key={item.primary_type}>
+                  <div className="ov-type-heading">
+                    <span className="ov-type-name">
+                      <span className="ov-type-index">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      {item.primary_type}
+                    </span>
+                    <strong>{Math.round(percent)}%</strong>
+                  </div>
+
+                  <Track percent={percent} primary={index === 0} />
+
+                  <div className="ov-type-footer">
+                    <span>Reported incidents</span>
+                    <span>{formatNumber(count)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <p className="ov-card-note">
+          Shares are calculated from the category totals returned by the
+          dashboard for the selected area and reporting window.
+        </p>
+      </article>
+
+      {/* ARREST DATA */}
+      <article className="ov-card ov-arrests">
+        <div className="ov-section-heading">
+          <div>
+            <div className="ov-eyebrow">03 / Enforcement outcome</div>
+            <h3>Arrests recorded</h3>
+          </div>
+          <span className="ov-muted">Selected area</span>
+        </div>
+
+        {loadingArrests ? (
+          <div className="ov-empty">Loading arrest data…</div>
+        ) : arrests ? (
+          <>
+            <div className="ov-arrest-main">
+              <div className="ov-arrest-number">
+                {Math.round(arrestRate)}
+                <span>%</span>
               </div>
+              <div className="ov-arrest-caption">
+                of recorded incidents marked as arrests
+              </div>
+            </div>
 
-              <div className="cw-btn-row">
+            <div className="ov-track ov-arrest-track">
+              <div
+                className="ov-track-fill ov-fill-primary"
+                style={{ width: `${arrestRate}%` }}
+              />
+            </div>
+
+            <div className="ov-arrest-breakdown">
+              <div>
+                <span className="ov-muted">Arrests</span>
+                <strong>{formatNumber(arrests.total_arrests)}</strong>
+              </div>
+              <div>
+                <span className="ov-muted">Total incidents</span>
+                <strong>{formatNumber(arrests.total_crimes)}</strong>
+              </div>
+            </div>
+
+            <p className="ov-card-note">
+              An arrest is not the same as a conviction. These figures
+              describe recorded data, not the outcome of a court case.
+            </p>
+          </>
+        ) : (
+          <div className="ov-empty">
+            Arrest data is currently unavailable for this area.
+          </div>
+        )}
+      </article>
+
+      {/* NEWS */}
+      <article className="ov-card ov-news">
+        <div className="ov-section-heading">
+          <div>
+            <div className="ov-eyebrow">04 / News desk</div>
+            <h3>Related coverage</h3>
+          </div>
+
+          <button
+            type="button"
+            className="ov-refresh"
+            onClick={() => loadNews(selectedArea)}
+            disabled={loadingNews}
+          >
+            {loadingNews ? "Refreshing…" : "Refresh ↻"}
+          </button>
+        </div>
+
+        {loadingNews ? (
+          <div className="ov-empty">Checking available coverage…</div>
+        ) : articles.length === 0 ? (
+          <div className="ov-news-unavailable">
+            <div className="ov-news-symbol">!</div>
+            <div>
+              <strong>No articles returned</strong>
+              <p>
+                No matching coverage is currently available. This can
+                happen because of API limits or a lack of matching
+                articles; it does not mean no incidents occurred.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="ov-news-scope">
+              {articles[0]?.is_area_specific
+                ? `AREA COVERAGE · ${selectedArea || "SELECTED AREA"}`
+                : "GENERAL CHICAGO COVERAGE"}
+            </div>
+
+            <div className="ov-news-list">
+              {articles.slice(0, 3).map((article, index) => (
                 <a
-                  className="cw-btn cw-btn-primary"
-                  href={articles[0]?.url || "#"}
+                  className="ov-news-item"
+                  key={article.url || index}
+                  href={article.url || undefined}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Open article
+                  <span className="ov-news-item-index">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+
+                  <div>
+                    <h4>{article.title || "Untitled article"}</h4>
+                    <p>
+                      {article.source_name ||
+                        article.source?.name ||
+                        "News source"}
+                      {" · "}
+                      {timeAgo(
+                        article.published_at || article.publishedAt
+                      )}
+                    </p>
+                  </div>
+
+                  <span className="ov-news-arrow">↗</span>
                 </a>
-                <button
-                  className="cw-btn cw-btn-secondary"
-                  onClick={() => loadNews(selectedArea)}
-                >
-                  Refresh
-                </button>
-              </div>
+              ))}
             </div>
-          </div>
+          </>
+        )}
+
+        <div className="ov-news-footer">
+          <span>EXTERNAL NEWS COVERAGE</span>
+          <span>VERIFY AT SOURCE</span>
+        </div>
+      </article>
+    </section>
   );
 }

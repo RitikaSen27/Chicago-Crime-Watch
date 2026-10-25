@@ -1,4 +1,3 @@
-import { useState } from "react";
 
 const styles = `
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@500;600;700&display=swap');

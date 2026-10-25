@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import mysql.connector
 import requests
@@ -28,21 +28,11 @@ def get_connection():
 def get_latest_date(cursor):
     """
     Returns the most recent crime_date actually present in the data.
-    Chicago's open data portal publishes with a lag, so 'today' in the
-    real world is not the same as 'today' in this dataset. Anchoring
-    all '30 days' / '14 days' windows to this value (instead of NOW())
-    keeps every endpoint consistent with what data actually exists.
     """
     cursor.execute("SELECT MAX(crime_date) AS latest FROM crimes")
     return cursor.fetchone()["latest"]
 
 def call_newsapi(query):
-    """
-    Calls NewsAPI with a given query string, restricted to a whitelist
-    of real Chicago news domains. Prints the raw status/error to the
-    terminal so a quota issue is visible and distinguishable from a
-    genuine zero-result search.
-    """
     resp = requests.get("https://newsapi.org/v2/everything", params={
         "q": query,
         "language": "en",
@@ -59,6 +49,7 @@ def call_newsapi(query):
 
 @app.route("/api/hotspots")
 def hotspots():
+    days = request.args.get("days", default=30, type=int)
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     latest = get_latest_date(cursor)
@@ -69,12 +60,12 @@ def hotspots():
             COUNT(*) AS crime_count
         FROM crimes c
         JOIN community_areas ca ON c.community_area = ca.area_number
-        WHERE c.crime_date >= %s - INTERVAL 30 DAY
+        WHERE c.crime_date >= %s - INTERVAL %s DAY
         GROUP BY ca.area_name, ca.area_number
         ORDER BY crime_count DESC
         LIMIT 10
     """
-    cursor.execute(query, (latest,))
+    cursor.execute(query, (latest, days))
     results = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -82,6 +73,7 @@ def hotspots():
 
 @app.route("/api/area/<area_name>/breakdown")
 def area_breakdown(area_name):
+    days = request.args.get("days", default=30, type=int)
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     latest = get_latest_date(cursor)
@@ -92,12 +84,12 @@ def area_breakdown(area_name):
         FROM crimes c
         JOIN community_areas ca ON c.community_area = ca.area_number
         WHERE ca.area_name = %s
-          AND c.crime_date >= %s - INTERVAL 30 DAY
+          AND c.crime_date >= %s - INTERVAL %s DAY
         GROUP BY c.primary_type
         ORDER BY type_count DESC
-        LIMIT 6
+        LIMIT 10
     """
-    cursor.execute(query, (area_name, latest))
+    cursor.execute(query, (area_name, latest, days))
     results = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -105,6 +97,7 @@ def area_breakdown(area_name):
 
 @app.route("/api/area/<area_name>/arrests")
 def area_arrests(area_name):
+    days = request.args.get("days", default=30, type=int)
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     latest = get_latest_date(cursor)
@@ -115,9 +108,9 @@ def area_arrests(area_name):
         FROM crimes c
         JOIN community_areas ca ON c.community_area = ca.area_number
         WHERE ca.area_name = %s
-          AND c.crime_date >= %s - INTERVAL 30 DAY
+          AND c.crime_date >= %s - INTERVAL %s DAY
     """
-    cursor.execute(query, (area_name, latest))
+    cursor.execute(query, (area_name, latest, days))
     result = cursor.fetchone()
     cursor.close()
     conn.close()
@@ -135,6 +128,7 @@ def area_arrests(area_name):
 
 @app.route("/api/area/<area_name>/timepattern")
 def area_timepattern(area_name):
+    days = request.args.get("days", default=30, type=int)
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     latest = get_latest_date(cursor)
@@ -147,10 +141,10 @@ def area_timepattern(area_name):
         FROM crimes c
         JOIN community_areas ca ON c.community_area = ca.area_number
         WHERE ca.area_name = %s
-          AND c.crime_date >= %s - INTERVAL 30 DAY
+          AND c.crime_date >= %s - INTERVAL %s DAY
         GROUP BY day_name, day_num
         ORDER BY day_num
-    """, (area_name, latest))
+    """, (area_name, latest, days))
     by_day = cursor.fetchall()
 
     cursor.execute("""
@@ -160,10 +154,10 @@ def area_timepattern(area_name):
         FROM crimes c
         JOIN community_areas ca ON c.community_area = ca.area_number
         WHERE ca.area_name = %s
-          AND c.crime_date >= %s - INTERVAL 30 DAY
+          AND c.crime_date >= %s - INTERVAL %s DAY
         GROUP BY hour
         ORDER BY hour
-    """, (area_name, latest))
+    """, (area_name, latest, days))
     by_hour = cursor.fetchall()
 
     cursor.close()
@@ -172,6 +166,7 @@ def area_timepattern(area_name):
 
 @app.route("/api/area/<area_name>/locations")
 def area_locations(area_name):
+    days = request.args.get("days", default=30, type=int)
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     latest = get_latest_date(cursor)
@@ -180,15 +175,17 @@ def area_locations(area_name):
         FROM crimes c
         JOIN community_areas ca ON c.community_area = ca.area_number
         WHERE ca.area_name = %s
-          AND c.crime_date >= %s - INTERVAL 30 DAY
+          AND c.crime_date >= %s - INTERVAL %s DAY
           AND latitude IS NOT NULL
           AND longitude IS NOT NULL
         ORDER BY RAND()
         LIMIT 400
     """
-    cursor.execute(query, (area_name, latest))
+    cursor.execute(query, (area_name, latest, days))
     results = cursor.fetchall()
     cursor.close()
+    conn.close()
+    return jsonify(results)
     conn.close()
     return jsonify(results)
 
@@ -247,29 +244,33 @@ def news(area_name):
 
 @app.route("/api/summary")
 def summary():
+    days = request.args.get("days", default=30, type=int)
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     latest = get_latest_date(cursor)
 
     cursor.execute(
-        "SELECT COUNT(*) as total FROM crimes WHERE crime_date >= %s - INTERVAL 30 DAY",
-        (latest,)
+        "SELECT COUNT(*) as total FROM crimes WHERE crime_date >= %s - INTERVAL %s DAY",
+        (latest, days)
     )
     total = cursor.fetchone()["total"]
 
+    # Trend sparkline proportional to window
+    trend_interval = 14 if days <= 30 else (30 if days <= 60 else 60)
     cursor.execute("""
         SELECT DATE(crime_date) as day, COUNT(*) as count
         FROM crimes
-        WHERE crime_date >= %s - INTERVAL 14 DAY
+        WHERE crime_date >= %s - INTERVAL %s DAY
         GROUP BY DATE(crime_date)
         ORDER BY day
-    """, (latest,))
+    """, (latest, trend_interval))
     trend = cursor.fetchall()
 
     cursor.close()
     conn.close()
     return jsonify({
         "total_30_days": total,
+        "days": days,
         "trend": trend,
         "latest_data_date": str(latest)
     })

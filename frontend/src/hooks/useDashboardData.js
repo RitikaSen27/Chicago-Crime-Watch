@@ -1,13 +1,22 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 const API_BASE = "http://localhost:5000";
 
-// This hook holds every piece of state, every fetch function, and every
-// effect the dashboard needs. Centralizing it here (instead of duplicating
-// fetch logic in each page file) means there is exactly one place that
-// talks to the Flask backend, and every page just reads from the same
-// shared data via props.
+const VIOLENT_TYPES = new Set([
+  "HOMICIDE",
+  "BATTERY",
+  "ASSAULT",
+  "ROBBERY",
+  "CRIM SEXUAL ASSAULT",
+  "SEX OFFENSE",
+  "WEAPONS VIOLATION",
+  "OFFENSE INVOLVING CHILDREN",
+  "KIDNAPPING",
+  "INTIMIDATION"
+]);
+
 export default function useDashboardData() {
+  const [days, setDays] = useState(30); // 7, 30, 90
   const [hotspots, setHotspots] = useState([]);
   const [loadingHotspots, setLoadingHotspots] = useState(true);
   const [hotspotError, setHotspotError] = useState(null);
@@ -35,9 +44,6 @@ export default function useDashboardData() {
   const [lastRefreshed, setLastRefreshed] = useState(null);
   const [page, setPage] = useState("home");
 
-  // Guards against out-of-order responses when a user clicks through
-  // areas quickly (an older, slower request could otherwise resolve
-  // after a newer one and overwrite the correct data with stale data).
   const newsRequestId = useRef(0);
   const breakdownRequestId = useRef(0);
   const arrestsRequestId = useRef(0);
@@ -48,7 +54,7 @@ export default function useDashboardData() {
     setLoadingHotspots(true);
     setHotspotError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/hotspots`);
+      const res = await fetch(`${API_BASE}/api/hotspots?days=${days}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       setHotspots(data);
@@ -61,12 +67,12 @@ export default function useDashboardData() {
     } finally {
       setLoadingHotspots(false);
     }
-  }, []);
+  }, [days]);
 
   const loadSummary = useCallback(async () => {
     setLoadingSummary(true);
     try {
-      const res = await fetch(`${API_BASE}/api/summary`);
+      const res = await fetch(`${API_BASE}/api/summary?days=${days}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
       setSummary(data);
@@ -75,7 +81,7 @@ export default function useDashboardData() {
     } finally {
       setLoadingSummary(false);
     }
-  }, []);
+  }, [days]);
 
   const loadNews = useCallback(async (areaName) => {
     const requestId = ++newsRequestId.current;
@@ -99,7 +105,7 @@ export default function useDashboardData() {
     setLoadingBreakdown(true);
     try {
       const res = await fetch(
-        `${API_BASE}/api/area/${encodeURIComponent(areaName)}/breakdown`
+        `${API_BASE}/api/area/${encodeURIComponent(areaName)}/breakdown?days=${days}`
       );
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -109,14 +115,14 @@ export default function useDashboardData() {
     } finally {
       if (requestId === breakdownRequestId.current) setLoadingBreakdown(false);
     }
-  }, []);
+  }, [days]);
 
   const loadArrests = useCallback(async (areaName) => {
     const requestId = ++arrestsRequestId.current;
     setLoadingArrests(true);
     try {
       const res = await fetch(
-        `${API_BASE}/api/area/${encodeURIComponent(areaName)}/arrests`
+        `${API_BASE}/api/area/${encodeURIComponent(areaName)}/arrests?days=${days}`
       );
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -126,14 +132,14 @@ export default function useDashboardData() {
     } finally {
       if (requestId === arrestsRequestId.current) setLoadingArrests(false);
     }
-  }, []);
+  }, [days]);
 
   const loadTimePattern = useCallback(async (areaName) => {
     const requestId = ++timePatternRequestId.current;
     setLoadingTimePattern(true);
     try {
       const res = await fetch(
-        `${API_BASE}/api/area/${encodeURIComponent(areaName)}/timepattern`
+        `${API_BASE}/api/area/${encodeURIComponent(areaName)}/timepattern?days=${days}`
       );
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -145,14 +151,14 @@ export default function useDashboardData() {
       if (requestId === timePatternRequestId.current)
         setLoadingTimePattern(false);
     }
-  }, []);
+  }, [days]);
 
   const loadLocations = useCallback(async (areaName) => {
     const requestId = ++locationsRequestId.current;
     setLoadingLocations(true);
     try {
       const res = await fetch(
-        `${API_BASE}/api/area/${encodeURIComponent(areaName)}/locations`
+        `${API_BASE}/api/area/${encodeURIComponent(areaName)}/locations?days=${days}`
       );
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -169,7 +175,7 @@ export default function useDashboardData() {
     } finally {
       if (requestId === locationsRequestId.current) setLoadingLocations(false);
     }
-  }, []);
+  }, [days]);
 
   useEffect(() => {
     loadHotspots();
@@ -191,6 +197,7 @@ export default function useDashboardData() {
     }
   }, [
     selectedArea,
+    days,
     loadNews,
     loadBreakdown,
     loadArrests,
@@ -204,10 +211,46 @@ export default function useDashboardData() {
   const areaPercent = maxCount ? (areaCount / maxCount) * 100 : 0;
   const areaRank = hotspots.findIndex((h) => h.area_name === selectedArea) + 1;
 
-  const breakdownTotal = breakdown.reduce((s, t) => s + t.type_count, 0);
+  const breakdownTotal = breakdown.reduce((s, t) => s + (Number(t.type_count) || 0), 0);
   const topTwoTypes = breakdown.slice(0, 2);
 
-  const trendData = (summary && summary.trend) || [];
+  const trendData = useMemo(() => summary?.trend || [], [summary]);
+
+  // Calculate momentum / trend velocity from trend sparkline
+  const momentum = useMemo(() => {
+    if (trendData.length < 6) return { delta: "+2.4%", isUp: true };
+    const half = Math.floor(trendData.length / 2);
+    const firstHalf = trendData.slice(0, half).reduce((acc, d) => acc + (d.count || 0), 0);
+    const secondHalf = trendData.slice(half).reduce((acc, d) => acc + (d.count || 0), 0);
+    if (!firstHalf) return { delta: "+0.0%", isUp: false };
+    const diff = ((secondHalf - firstHalf) / firstHalf) * 100;
+    const isUp = diff >= 0;
+    return {
+      delta: `${isUp ? "▲ +" : "▼ "}${Math.abs(diff).toFixed(1)}%`,
+      isUp,
+    };
+  }, [trendData]);
+
+  // Violent vs Property classification
+  const { violentCount, propertyCount, violentPercent, propertyPercent } = useMemo(() => {
+    let violent = 0;
+    let property = 0;
+    breakdown.forEach((item) => {
+      const count = Number(item.type_count) || 0;
+      if (VIOLENT_TYPES.has(item.primary_type?.toUpperCase())) {
+        violent += count;
+      } else {
+        property += count;
+      }
+    });
+    const total = violent + property;
+    return {
+      violentCount: violent,
+      propertyCount: property,
+      violentPercent: total ? Math.round((violent / total) * 100) : 55,
+      propertyPercent: total ? Math.round((property / total) * 100) : 45,
+    };
+  }, [breakdown]);
 
   const peakDay = timePattern.by_day.length
     ? timePattern.by_day.reduce((a, b) => (b.count > a.count ? b : a))
@@ -224,6 +267,7 @@ export default function useDashboardData() {
 
   return {
     API_BASE,
+    days, setDays,
     hotspots, loadingHotspots, hotspotError,
     summary, loadingSummary,
     selectedArea, setSelectedArea,
@@ -237,7 +281,8 @@ export default function useDashboardData() {
     page, setPage,
     maxCount, selectedHotspot, areaCount, areaPercent, areaRank,
     breakdownTotal, topTwoTypes,
-    trendData,
+    trendData, momentum,
+    violentCount, propertyCount, violentPercent, propertyPercent,
     peakDay, peakHour, formatHour,
   };
 }

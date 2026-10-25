@@ -1,3 +1,4 @@
+import "./Home.css";
 import { AreaChart, Area, XAxis, ResponsiveContainer, Tooltip } from "recharts";
 
 const icons = {
@@ -46,6 +47,8 @@ export default function Home({
   summary,
   trendData,
   lastRefreshed,
+  days = 30,
+  momentum,
   setPage,
   setSelectedArea,
 }) {
@@ -65,7 +68,7 @@ export default function Home({
           <span className="ch-alert-tag">CURRENT ADVISORY</span>
           <span className="ch-alert-text">
             <strong>{leader.area_name}</strong> remains the highest-incident
-            community area over the last 30 days, with{" "}
+            community area over the last {days} days, with{" "}
             <strong>{leader.crime_count}</strong> reported cases.
           </span>
         </div>
@@ -75,12 +78,28 @@ export default function Home({
       <div className="ch-hero-banner">
         <div className="ch-hero-banner-top">
           <div>
-            <div className="cw-hero-label">Total incidents tracked</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div className="cw-hero-label">Total incidents tracked ({days}d)</div>
+              {momentum && (
+                <span
+                  className="cw-search-badge"
+                  style={{
+                    color: momentum.isUp ? "#E2574C" : "#22C55E",
+                    background: momentum.isUp ? "rgba(226,87,76,0.15)" : "rgba(34,197,94,0.15)",
+                    padding: "2px 6px",
+                    borderRadius: "2px",
+                    fontSize: "10px",
+                  }}
+                >
+                  {momentum.delta}
+                </span>
+              )}
+            </div>
             <div className="cw-hero-number">
               {summary ? summary.total_30_days.toLocaleString() : "—"}
             </div>
             <div className="cw-hero-sub">
-              Chicago, all community areas · last 30 days · real open data
+              Chicago, all community areas · last {days} days · real open data
             </div>
           </div>
           <div className="cw-hero-badge">
@@ -94,8 +113,8 @@ export default function Home({
             <AreaChart data={trendData} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="chGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#F5F3F0" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#F5F3F0" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#E2574C" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#E2574C" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis
@@ -110,11 +129,11 @@ export default function Home({
               />
               <Tooltip
                 contentStyle={{
-                  background: "#0B0B0D",
-                  border: "1px solid #26262A",
-                  borderRadius: 0,
+                  background: "#101012",
+                  border: "1px solid #37373C",
+                  borderRadius: 2,
                   fontSize: 12,
-                  color: "#F5F3F0",
+                  color: "#F2F0ED",
                 }}
                 labelFormatter={(d) => new Date(d).toDateString()}
                 formatter={(v) => [v, "Incidents"]}
@@ -122,7 +141,7 @@ export default function Home({
               <Area
                 type="monotone"
                 dataKey="count"
-                stroke="#F5F3F0"
+                stroke="#E2574C"
                 strokeWidth={2}
                 fill="url(#chGradient)"
               />
